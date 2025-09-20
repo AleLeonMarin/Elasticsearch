@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.chart.BarChart?>
+<?import javafx.scene.chart.CategoryAxis?>
+<?import javafx.scene.chart.NumberAxis?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.geometry.Insets?>
+
+<AnchorPane maxHeight="1.7976931348623157E308" maxWidth="1.7976931348623157E308" minHeight="-Infinity" minWidth="-Infinity" prefHeight="800.0" prefWidth="1200.0" xmlns="http://javafx.com/javafx/24.0.1" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.una.ale.controllers.MainController">
+   <children>
+      <VBox prefHeight="800.0" prefWidth="1200.0" spacing="10.0" AnchorPane.bottomAnchor="0.0" AnchorPane.leftAnchor="0.0" AnchorPane.rightAnchor="0.0" AnchorPane.topAnchor="0.0">
+         <children>
+            <!-- Header with title and status -->
+            <HBox alignment="CENTER_LEFT" spacing="20.0" style="-fx-background-color: #34495e; -fx-padding: 15;">
+               <children>
+                  <Label style="-fx-font-size: 20px; -fx-font-weight: bold; -fx-text-fill: white;" text="📊 Java with Elasticsearch Dashboard" />
+                  <Region HBox.hgrow="ALWAYS" />
+                  <Label fx:id="txtStatus" style="-fx-font-size: 14px; -fx-text-fill: #ecf0f1;" text="Inicializando..." />
+               </children>
+            </HBox>
+            
+            <!-- Control buttons -->
+            <HBox alignment="CENTER_LEFT" spacing="15.0" style="-fx-background-color: #ecf0f1; -fx-padding: 10;">
+               <children>
+                  <Button mnemonicParsing="false" onAction="#onReindexData" style="-fx-background-color: #3498db; -fx-text-fill: white; -fx-font-weight: bold;" text="🔄 Reindexar Datos" />
+                  <Button mnemonicParsing="false" onAction="#onReconnectElasticsearch" style="-fx-background-color: #2ecc71; -fx-text-fill: white; -fx-font-weight: bold;" text="🔗 Reconectar ES" />
+                  <Button mnemonicParsing="false" onAction="#onLoadData" style="-fx-background-color: #f39c12; -fx-text-fill: white; -fx-font-weight: bold;" text="📊 Cargar Datos" />
+                  <Button mnemonicParsing="false" onAction="#onViewIndexedData" style="-fx-background-color: #9b59b6; -fx-text-fill: white; -fx-font-weight: bold;" text="📋 Ver en Consola" />
+                  <Button mnemonicParsing="false" onAction="#onOpenDataViewer" style="-fx-background-color: #e67e22; -fx-text-fill: white; -fx-font-weight: bold;" text="🖥️ Visualizador Gráfico" />
+               </children>
+            </HBox>
+            
+            <!-- Main content area -->
+            <HBox prefHeight="100.0" prefWidth="200.0" spacing="10.0" VBox.vgrow="ALWAYS">
+               <children>
+                  <!-- Data table -->
+                  <VBox HBox.hgrow="ALWAYS">
+                     <children>
+                        <Label style="-fx-font-size: 16px; -fx-font-weight: bold; -fx-padding: 5;" text="📊 Datos Indexados" />
+                        <TableView fx:id="tblData" prefHeight="700.0" VBox.vgrow="ALWAYS">
+                          <columns>
+                            <TableColumn fx:id="colId" prefWidth="80.0" text="ID" />
+                            <TableColumn fx:id="colFecha" prefWidth="120.0" text="Fecha" />
+                            <TableColumn fx:id="colCliente" prefWidth="150.0" text="Cliente" />
+                            <TableColumn fx:id="colProducto" prefWidth="120.0" text="Producto" />
+                            <TableColumn fx:id="colCantidad" prefWidth="80.0" text="Cantidad" />
+                            <TableColumn fx:id="colTotal" prefWidth="100.0" text="Total" />
+                            <TableColumn fx:id="colProvincia" prefWidth="120.0" text="Provincia" />
+                          </columns>
+                          <columnResizePolicy>
+                             <TableView fx:constant="CONSTRAINED_RESIZE_POLICY" />
+                          </columnResizePolicy>
+                        </TableView>
+                     </children>
+                  </VBox>
+                  
+                  <!-- Chart area -->
+                  <VBox HBox.hgrow="ALWAYS">
+                     <children>
+                        <!-- Chart controls -->
+                        <HBox alignment="CENTER_LEFT" spacing="10.0" style="-fx-padding: 5;">
+                           <children>
+                              <Label style="-fx-font-size: 16px; -fx-font-weight: bold;" text="📈 Análisis Visual" />
+                              <Region HBox.hgrow="ALWAYS" />
+                              <Label text="Agrupar por:" />
+                              <ComboBox fx:id="cmbChartType" prefWidth="150.0" />
+                              <Button fx:id="btnUpdateChart" mnemonicParsing="false" onAction="#onUpdateChart" style="-fx-background-color: #27ae60; -fx-text-fill: white;" text=" Actualizar" />
+                           </children>
+                        </HBox>
+                        <BarChart fx:id="barChart" VBox.vgrow="ALWAYS">
+                          <xAxis>
+                            <CategoryAxis fx:id="xAxis" side="BOTTOM" />
+                          </xAxis>
+                          <yAxis>
+                            <NumberAxis fx:id="yAxis" side="LEFT" />
+                          </yAxis>
+                        </BarChart>
+                     </children>
+                  </VBox>
+               </children>
+            </HBox>
+         </children>
+         <padding>
+            <Insets bottom="10.0" left="10.0" right="10.0" top="0.0" />
+         </padding>
+      </VBox>
+   </children>
+</AnchorPane>

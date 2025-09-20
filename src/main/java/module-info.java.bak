@@ -1,0 +1,15 @@
+module com.una.ale {
+    requires javafx.controls;
+    requires javafx.fxml;
+    requires transitive javafx.graphics;
+    requires co.elastic.clients.elasticsearch;
+    requires org.elasticsearch.client.restclient;
+    requires org.apache.httpcomponents.httpclient5;
+    requires com.fasterxml.jackson.databind;
+
+    opens com.una.ale to javafx.fxml;
+    opens com.una.ale.controllers to javafx.fxml;
+    exports com.una.ale;
+    exports com.una.ale.controllers;
+    exports com.una.ale.util;
+}
