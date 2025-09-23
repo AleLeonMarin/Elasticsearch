@@ -25,6 +25,9 @@ import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Button;
+import javafx.scene.control.TextField;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyEvent;
 
 /**
  * Controlador principal de la aplicación JavaFX
@@ -93,6 +96,18 @@ public class MainController {
     private ComboBox<ChartType> cmbChartType;
     @FXML
     private Button btnUpdateChart;
+    
+    // Componentes de búsqueda
+    @FXML
+    private TextField txtSearch;
+    @FXML
+    private ComboBox<String> cmbSearchField;
+    @FXML
+    private Button btnSearch;
+    @FXML
+    private Button btnClearSearch;
+    @FXML
+    private Label lblSearchResults;
 
     // Servicios
     private final ElasticsearchService elasticsearchService;
@@ -100,10 +115,12 @@ public class MainController {
     
     // Datos
     private ObservableList<Map<String, Object>> tableData;
+    private ObservableList<Map<String, Object>> originalData; // Para restaurar después de búsquedas
     
     // Estado de la aplicación
     private boolean isElasticsearchConnected = false;
     private int lastIndexedCount = 0;
+    private boolean isSearchActive = false;
 
     /**
      * Constructor - inicializa los servicios
@@ -112,6 +129,7 @@ public class MainController {
         this.elasticsearchService = new ElasticsearchService();
         this.excelReader = new ExcelReader();
         this.tableData = FXCollections.observableArrayList();
+        this.originalData = FXCollections.observableArrayList();
     }
 
     /**
@@ -123,6 +141,7 @@ public class MainController {
         setupTableColumns();
         setupChart();
         setupChartTypeComboBox();
+        setupSearchComponents();
         updateStatus("🔄 Inicializando...", false);
         
         // Ejecutar inicialización en background para no bloquear UI
@@ -143,6 +162,27 @@ public class MainController {
     private void setupChartTypeComboBox() {
         cmbChartType.setItems(FXCollections.observableArrayList(ChartType.values()));
         cmbChartType.setValue(ChartType.PRODUCTO); // Valor por defecto
+    }
+    
+    /**
+     * Configura los componentes de búsqueda
+     */
+    private void setupSearchComponents() {
+        // Configurar ComboBox de campos de búsqueda
+        cmbSearchField.setItems(FXCollections.observableArrayList(
+            "Todos los campos",
+            "cliente", 
+            "producto", 
+            "provincia", 
+            "fecha"
+        ));
+        cmbSearchField.setValue("Todos los campos");
+        
+        // Configurar placeholder y estilo del campo de búsqueda
+        txtSearch.setPromptText("Escribe aquí para buscar...");
+        
+        // Inicializar label de resultados
+        lblSearchResults.setText("");
     }
 
     /**
@@ -245,6 +285,19 @@ public class MainController {
         }
 
         try {
+            // Verificar si ya hay datos en el índice
+            long existingCount = elasticsearchService.countDocuments(DEFAULT_INDEX_NAME);
+            if (existingCount > 0) {
+                logInfo("📊 Ya hay " + existingCount + " documentos en el índice '" + DEFAULT_INDEX_NAME + "'");
+                logInfo("⏭️ Saltando indexación - datos ya existen");
+                
+                Platform.runLater(() -> {
+                    updateStatus("✅ " + existingCount + " docs ya indexados", false);
+                    loadDataToTable();
+                });
+                return;
+            }
+            
             logInfo("📊 Procesando archivo Excel: " + EXCEL_FILE_PATH);
             
             // Leer datos del Excel
@@ -350,12 +403,21 @@ public class MainController {
                         tableData.clear();
                         tableData.addAll(documents);
                         
+                        // Actualizar datos originales si no estamos en búsqueda
+                        if (!isSearchActive) {
+                            originalData.clear();
+                            originalData.addAll(documents);
+                        }
+                        
                         logInfo("✅ " + documents.size() + " registros cargados en la tabla");
                         
                         // Actualizar gráfico
                         updateChart(documents);
                     } else {
+                        tableData.clear();
                         logWarning("⚠️ No se encontraron datos para mostrar");
+                        // Limpiar gráfico cuando no hay datos
+                        updateChart(new ArrayList<>());
                     }
                 });
                 
@@ -388,6 +450,13 @@ public class MainController {
             
             // Configurar el título del gráfico
             barChart.setTitle(chartType.getChartTitle());
+            
+            // Limpiar gráfico si no hay datos
+            if (documents == null || documents.isEmpty()) {
+                barChart.getData().clear();
+                logInfo("📈 Gráfico limpiado - sin datos para mostrar");
+                return;
+            }
             
             Map<String, Double> groupedData;
             
@@ -504,9 +573,15 @@ public class MainController {
         
         // Obtener datos actuales de la tabla y actualizar gráfico
         List<Map<String, Object>> currentData = new ArrayList<>(tableData);
-        updateChart(currentData, selectedType);
         
-        logInfo("🔄 Gráfico actualizado a: " + selectedType.getDisplayName());
+        // Solo actualizar si hay datos para mostrar
+        if (!currentData.isEmpty()) {
+            updateChart(currentData, selectedType);
+            logInfo("🔄 Gráfico actualizado a: " + selectedType.getDisplayName());
+        } else {
+            updateChart(new ArrayList<>(), selectedType);
+            logInfo("🔄 Gráfico limpiado - sin datos actuales");
+        }
     }
 
     /**
@@ -663,6 +738,115 @@ public class MainController {
     // Getters para testing o acceso externo
     public boolean isElasticsearchConnected() {
         return isElasticsearchConnected;
+    }
+
+    /**
+     * Maneja el evento de búsqueda
+     */
+    @FXML
+    private void onSearch() {
+        String searchText = txtSearch.getText();
+        if (searchText == null || searchText.trim().isEmpty()) {
+            onClearSearch();
+            return;
+        }
+        
+        String selectedField = cmbSearchField.getValue();
+        performSearch(searchText.trim(), selectedField);
+    }
+    
+    /**
+     * Maneja el evento de limpiar búsqueda
+     */
+    @FXML
+    private void onClearSearch() {
+        txtSearch.clear();
+        cmbSearchField.setValue("Todos los campos");
+        
+        // Restaurar datos originales
+        if (originalData != null && !originalData.isEmpty()) {
+            tableData.clear();
+            tableData.addAll(originalData);
+            updateChart(new ArrayList<>(originalData));
+            lblSearchResults.setText("");
+            isSearchActive = false;
+            logInfo("🗑️ Búsqueda limpiada - mostrando todos los datos");
+        } else {
+            // Si no hay datos originales, limpiar todo
+            tableData.clear();
+            updateChart(new ArrayList<>());
+            lblSearchResults.setText("");
+            isSearchActive = false;
+            logInfo("🗑️ Búsqueda limpiada - sin datos originales para restaurar");
+        }
+    }
+    
+    /**
+     * Maneja el evento de tecla presionada en el campo de búsqueda
+     */
+    @FXML
+    private void onSearchKeyPressed(KeyEvent event) {
+        if (event.getCode() == KeyCode.ENTER) {
+            onSearch();
+        }
+    }
+    
+    /**
+     * Realiza una búsqueda en Elasticsearch
+     */
+    private void performSearch(String searchText, String selectedField) {
+        CompletableFuture.runAsync(() -> {
+            try {
+                Platform.runLater(() -> {
+                    lblSearchResults.setText("🔍 Buscando...");
+                    btnSearch.setDisable(true);
+                });
+                
+                List<Map<String, Object>> searchResults;
+                
+                if ("Todos los campos".equals(selectedField)) {
+                    // Búsqueda en todos los campos
+                    searchResults = elasticsearchService.searchAllFields(DEFAULT_INDEX_NAME, searchText);
+                } else {
+                    // Búsqueda en campo específico
+                    searchResults = elasticsearchService.searchByField(DEFAULT_INDEX_NAME, selectedField, searchText);
+                }
+                
+                Platform.runLater(() -> {
+                    // Guardar datos originales si es la primera búsqueda
+                    if (!isSearchActive && !tableData.isEmpty()) {
+                        originalData.clear();
+                        originalData.addAll(tableData);
+                    }
+                    
+                    // Actualizar tabla con resultados
+                    tableData.clear();
+                    if (searchResults != null) {
+                        tableData.addAll(searchResults);
+                    }
+                    
+                    // Actualizar gráfico con los resultados actuales
+                    updateChart(searchResults != null ? searchResults : new ArrayList<>());
+                    
+                    // Actualizar label de resultados
+                    int resultCount = searchResults != null ? searchResults.size() : 0;
+                    lblSearchResults.setText(String.format("📊 %d resultados encontrados", resultCount));
+                    
+                    isSearchActive = true;
+                    btnSearch.setDisable(false);
+                    
+                    logInfo(String.format("🔍 Búsqueda completada: '%s' en campo '%s' - %d resultados", 
+                           searchText, selectedField, resultCount));
+                });
+                
+            } catch (Exception e) {
+                Platform.runLater(() -> {
+                    lblSearchResults.setText("❌ Error en búsqueda");
+                    btnSearch.setDisable(false);
+                    logError("❌ Error en búsqueda: " + e.getMessage());
+                });
+            }
+        });
     }
 
     public int getLastIndexedCount() {

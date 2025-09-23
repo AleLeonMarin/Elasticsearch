@@ -343,45 +343,340 @@ public int bulkIndexDocuments(String indexName, List<Map<String, Object>> docume
 }
 ```
 
+## 🔍 Sistema de Búsqueda en Elasticsearch
+
+### ¿Cómo Funciona la Búsqueda?
+
+La aplicación implementa un sistema de búsqueda completo que permite buscar en todos los campos o en campos específicos:
+
+#### 1. **Búsqueda Global (Todos los campos)**
+```java
+public List<Map<String, Object>> searchAllFields(String indexName, String searchText) throws IOException {
+    SearchRequest searchRequest = SearchRequest.of(s -> s
+        .index(indexName)
+        .query(q -> q
+            .queryString(qs -> qs
+                .query(searchText)
+                .defaultField("*")  // Buscar en todos los campos
+                .analyzer("standard")
+            )
+        )
+        .size(100)
+    );
+    
+    SearchResponse<ObjectNode> response = client.search(searchRequest, ObjectNode.class);
+    return processSearchResults(response);
+}
+```
+
+**¿Qué hace internamente?**
+- Usa el analizador `standard` que tokeniza el texto por espacios y puntuación
+- Busca en todos los campos del documento (`defaultField: "*"`)
+- Elasticsearch calcula automáticamente la relevancia usando TF-IDF
+- Los resultados se ordenan por score de relevancia
+
+#### 2. **Búsqueda por Campo Específico**
+```java
+public List<Map<String, Object>> searchByField(String indexName, String fieldName, String searchText) throws IOException {
+    SearchRequest searchRequest = SearchRequest.of(s -> s
+        .index(indexName)
+        .query(q -> q
+            .match(m -> m
+                .field(fieldName)
+                .query(searchText)
+                .fuzziness("AUTO")  // Tolerancia a errores tipográficos
+            )
+        )
+        .size(100)
+    );
+    
+    SearchResponse<ObjectNode> response = client.search(searchRequest, ObjectNode.class);
+    return processSearchResults(response);
+}
+```
+
+**Características avanzadas:**
+- **Fuzziness "AUTO"**: Tolera 1-2 errores tipográficos automáticamente
+- **Match Query**: Busca coincidencias exactas o parciales en el campo específico
+- **Análisis de texto**: Aplica stemming y normalización según el idioma
+
+#### 3. **Prevención de Duplicados**
+```java
+private List<Map<String, Object>> processSearchResults(SearchResponse<ObjectNode> response) {
+    Map<String, Map<String, Object>> uniqueDocuments = new LinkedHashMap<>();
+    
+    for (Hit<ObjectNode> hit : response.hits().hits()) {
+        Map<String, Object> sourceMap = objectMapper.convertValue(hit.source(), Map.class);
+        String docId = sourceMap.get("id").toString();
+        
+        // Solo agregar si no existe (evita duplicados)
+        if (!uniqueDocuments.containsKey(docId)) {
+            uniqueDocuments.put(docId, sourceMap);
+        }
+    }
+    
+    return new ArrayList<>(uniqueDocuments.values());
+}
+```
+
+### Tipos de Consultas Implementadas
+
+| Tipo de Consulta | Uso | Ejemplo | Tolerancia a Errores |
+|---|---|---|---|
+| **Query String** | Búsqueda global | `Pedro ventas` | Media |
+| **Match Query** | Campo específico | `cliente: "Pedro"` | Alta (Fuzziness) |
+| **Term Query** | Coincidencia exacta | `provincia: "San José"` | Ninguna |
+
+### Interfaz de Usuario para Búsqueda
+
+#### Componentes JavaFX
+```java
+@FXML private TextField txtSearch;           // Campo de búsqueda
+@FXML private ComboBox<String> cmbSearchField; // Selector de campo
+@FXML private Button btnSearch;              // Botón buscar
+@FXML private Button btnClearSearch;         // Limpiar búsqueda
+@FXML private Label lblSearchResults;        // Contador de resultados
+```
+
+#### Funcionalidades Implementadas
+1. **Búsqueda en tiempo real**: Al presionar Enter
+2. **Selector de campo**: Dropdown con opciones disponibles
+3. **Contador de resultados**: Muestra cantidad de documentos encontrados
+4. **Limpieza de búsqueda**: Restaura vista completa de datos
+5. **Sincronización**: Tabla y gráfico se actualizan automáticamente
+
+### Flujo de Búsqueda Completo
+
+```mermaid
+sequenceDiagram
+    participant UI as Interfaz Usuario
+    participant Controller as MainController
+    participant Service as ElasticsearchService
+    participant ES as Elasticsearch
+    
+    UI->>Controller: onSearch()
+    Controller->>Service: searchAllFields() / searchByField()
+    Service->>ES: SearchRequest
+    ES->>Service: SearchResponse
+    Service->>Service: processSearchResults() - Remove duplicates
+    Service->>Controller: List<Map<String, Object>>
+    Controller->>UI: Update Table & Chart
+    Controller->>UI: Update Results Counter
+```
+
 ## 🔍 Proceso de Indexación en Elasticsearch
 
 ### ¿Qué hace Elasticsearch al indexar?
 
-1. **Análisis del Documento**:
-   - Elasticsearch analiza cada campo del documento JSON
-   - Determina automáticamente el tipo de datos (string, number, date, etc.)
-   - Aplica analizadores de texto para campos de tipo texto
+#### 1. **Análisis del Documento**
+Cuando Elasticsearch recibe un documento JSON:
+```json
+{
+  "id": 1,
+  "fecha": "01/15/2024",
+  "cliente": "Pedro García",
+  "producto": "Laptop HP",
+  "cantidad": 2,
+  "precio_unitario": 850000.0,
+  "total": 1700000.0,
+  "provincia": "San José"
+}
+```
 
-2. **Creación del Mapping**:
-   ```json
-   {
-     "mappings": {
-       "properties": {
-         "id": { "type": "long" },
-         "fecha": { "type": "text" },
-         "cliente": { "type": "text" },
-         "producto": { "type": "text" },
-         "cantidad": { "type": "long" },
-         "precio_unitario": { "type": "double" },
-         "total": { "type": "double" },
-         "provincia": { "type": "text" }
-       }
-     }
-   }
-   ```
+**Elasticsearch automáticamente:**
+- **Detecta tipos de datos**: Numbers, texto, fechas
+- **Aplica analizadores**: Para campos de texto (tokenización, stemming)
+- **Crea mapping dinámico**: Define estructura del índice
 
-3. **Almacenamiento y Sharding**:
-   - Los documentos se distribuyen en shards (fragmentos)
-   - Cada shard se replica para alta disponibilidad
-   - Se crean índices invertidos para búsquedas rápidas
+#### 2. **Creación del Mapping Automático**
+```json
+{
+  "mappings": {
+    "properties": {
+      "id": { 
+        "type": "long" 
+      },
+      "fecha": { 
+        "type": "text",
+        "fields": {
+          "keyword": { "type": "keyword", "ignore_above": 256 }
+        }
+      },
+      "cliente": { 
+        "type": "text",
+        "analyzer": "standard",
+        "fields": {
+          "keyword": { "type": "keyword", "ignore_above": 256 }
+        }
+      },
+      "producto": { 
+        "type": "text",
+        "analyzer": "standard" 
+      },
+      "cantidad": { 
+        "type": "long" 
+      },
+      "precio_unitario": { 
+        "type": "double" 
+      },
+      "total": { 
+        "type": "double" 
+      },
+      "provincia": { 
+        "type": "text",
+        "fields": {
+          "keyword": { "type": "keyword" }
+        }
+      }
+    }
+  }
+}
+```
 
-4. **Indexación de Términos**:
-   - Para campos de texto: tokenización, normalización, stemming
-   - Para campos numéricos: indexación de rangos para consultas eficientes
-   - Para fechas: conversión a timestamp interno
+#### 3. **Proceso de Análisis de Texto**
 
-### Estructura del Índice Creado
+Para el campo `cliente: "Pedro García"`:
 
+```
+1. Tokenización:     ["Pedro", "García"]
+2. Lowercase:        ["pedro", "garcía"]  
+3. Normalización:    ["pedro", "garcia"]  # Removal de acentos
+4. Stemming:         ["pedr", "garci"]    # Reducción a raíz
+```
+
+Esto permite que búsquedas como `"pedro"`, `"Pedro"`, `"PEDRO"` encuentren el documento.
+
+#### 4. **Almacenamiento y Sharding**
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│     Shard 0     │    │     Shard 1     │    │     Shard 2     │
+│  Docs 1,4,7...  │    │  Docs 2,5,8...  │    │  Docs 3,6,9...  │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │
+         ▼                       ▼                       ▼
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Replica 0-1   │    │   Replica 1-1   │    │   Replica 2-1   │
+│  (Backup copy)  │    │  (Backup copy)  │    │  (Backup copy)  │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+```
+
+#### 5. **Creación de Índices Invertidos**
+
+Para búsquedas rápidas, Elasticsearch crea índices invertidos:
+
+```
+Término → Lista de Documentos
+"pedro"  → [1, 5, 12, 23]
+"garcia" → [1, 8, 15]  
+"laptop" → [1, 3, 7, 11]
+"hp"     → [1, 9, 14]
+```
+
+### Implementación en Java
+
+#### 1. **Indexación Individual**
+```java
+public boolean indexDocument(String indexName, Map<String, Object> document) throws IOException {
+    IndexRequest request = IndexRequest.of(i -> i
+        .index(indexName)
+        .document(document)
+    );
+    
+    IndexResponse response = client.index(request);
+    return response.result() == Result.Created || response.result() == Result.Updated;
+}
+```
+
+#### 2. **Indexación Masiva (Bulk API)**
+```java
+public int bulkIndexDocuments(String indexName, List<Map<String, Object>> documents) throws IOException {
+    BulkRequest.Builder bulkBuilder = new BulkRequest.Builder();
+    
+    // Agregar operaciones de indexación en lote
+    for (Map<String, Object> document : documents) {
+        bulkBuilder.operations(op -> op
+            .index(idx -> idx
+                .index(indexName)
+                .document(document)
+            )
+        );
+    }
+    
+    BulkResponse bulkResponse = client.bulk(bulkBuilder.build());
+    
+    // Contar documentos exitosos
+    int successCount = 0;
+    for (BulkResponseItem item : bulkResponse.items()) {
+        if (item.error() == null) {
+            successCount++;
+        } else {
+            System.err.println("Error indexando documento: " + item.error().reason());
+        }
+    }
+    
+    return successCount;
+}
+```
+
+#### 3. **Ventajas de la Indexación Masiva**
+
+| Característica | Indexación Individual | Bulk API |
+|---|---|---|
+| **Performance** | 1 doc/request | 100+ docs/request |
+| **Overhead de Red** | Alto | Bajo |
+| **Througput** | ~100 docs/sec | ~10,000 docs/sec |
+| **Uso de Memoria** | Bajo | Moderado |
+| **Recomendado para** | Docs únicos en tiempo real | Carga inicial masiva |
+
+### Optimizaciones de Indexación
+
+#### 1. **Configuración de Índice**
+```java
+public void createIndexWithSettings(String indexName) throws IOException {
+    CreateIndexRequest request = CreateIndexRequest.of(c -> c
+        .index(indexName)
+        .settings(s -> s
+            .numberOfShards("1")           // Para datasets pequeños
+            .numberOfReplicas("0")         // Sin réplicas en desarrollo
+            .refreshInterval("30s")        // Refresh menos frecuente
+        )
+    );
+    
+    client.indices().create(request);
+}
+```
+
+#### 2. **Batch Processing**
+```java
+public int indexExcelData(String indexName, Map<Integer, List<String>> excelData, List<String> headers) {
+    List<Map<String, Object>> batch = new ArrayList<>();
+    final int BATCH_SIZE = 100;
+    int totalIndexed = 0;
+    
+    for (int i = 1; i < excelData.size(); i++) { // Skip header row
+        Map<String, Object> document = createDocument(headers, excelData.get(i));
+        batch.add(document);
+        
+        // Procesar en lotes
+        if (batch.size() >= BATCH_SIZE) {
+            totalIndexed += bulkIndexDocuments(indexName, batch);
+            batch.clear();
+        }
+    }
+    
+    // Procesar lote final
+    if (!batch.isEmpty()) {
+        totalIndexed += bulkIndexDocuments(indexName, batch);
+    }
+    
+    return totalIndexed;
+}
+```
+
+### Verificación y Monitoreo
+
+#### Comandos curl para verificar indexación:
 ```bash
 # Verificar el mapping del índice
 curl -X GET "localhost:9200/excel_ventas/_mapping"
@@ -391,9 +686,272 @@ curl -X GET "localhost:9200/excel_ventas/_stats"
 
 # Contar documentos
 curl -X GET "localhost:9200/excel_ventas/_count"
+
+# Ver configuración del índice
+curl -X GET "localhost:9200/excel_ventas/_settings"
+
+# Buscar todos los documentos
+curl -X GET "localhost:9200/excel_ventas/_search?pretty"
 ```
 
-## 🎮 Funcionalidades de la Aplicación
+#### En la aplicación Java:
+```java
+// Verificar estado del índice
+public Map<String, Object> getIndexStats(String indexName) throws IOException {
+    IndicesStatsRequest request = IndicesStatsRequest.of(i -> i.index(indexName));
+    IndicesStatsResponse response = client.indices().stats(request);
+    
+    return Map.of(
+        "documentCount", response.indices().get(indexName).total().docs().count(),
+        "indexSize", response.indices().get(indexName).total().store().sizeInBytes(),
+        "shards", response.indices().get(indexName).shards().size()
+    );
+}
+```
+
+### Búsquedas Avanzadas Disponibles
+
+#### 1. **Búsqueda con Agregaciones**
+```java
+public Map<String, Long> getProductStats(String indexName) throws IOException {
+    SearchRequest searchRequest = SearchRequest.of(s -> s
+        .index(indexName)
+        .size(0)  // Solo queremos agregaciones, no documentos
+        .aggregations("product_sales", a -> a
+            .terms(t -> t
+                .field("producto.keyword")
+                .size(10)
+            )
+            .aggregations("total_sales", sub -> sub
+                .sum(sum -> sum.field("total"))
+            )
+        )
+    );
+    
+    SearchResponse<Void> response = client.search(searchRequest, Void.class);
+    // Procesar agregaciones...
+}
+```
+
+#### 2. **Búsqueda con Filtros de Rango**
+```java
+public List<Map<String, Object>> searchByDateRange(String indexName, String startDate, String endDate) throws IOException {
+    SearchRequest searchRequest = SearchRequest.of(s -> s
+        .index(indexName)
+        .query(q -> q
+            .range(r -> r
+                .field("fecha")
+                .gte(JsonData.of(startDate))
+                .lte(JsonData.of(endDate))
+            )
+        )
+    );
+    
+    SearchResponse<ObjectNode> response = client.search(searchRequest, ObjectNode.class);
+    return processSearchResults(response);
+}
+```
+
+#### 3. **Búsqueda Combinada (Bool Query)**
+```java
+public List<Map<String, Object>> complexSearch(String indexName, String producto, double minTotal) throws IOException {
+    SearchRequest searchRequest = SearchRequest.of(s -> s
+        .index(indexName)
+        .query(q -> q
+            .bool(b -> b
+                .must(m -> m.match(match -> match.field("producto").query(producto)))
+                .filter(f -> f.range(r -> r.field("total").gte(JsonData.of(minTotal))))
+                .should(should -> should.term(t -> t.field("provincia.keyword").value("San José")))
+            )
+        )
+    );
+    
+    SearchResponse<ObjectNode> response = client.search(searchRequest, ObjectNode.class);
+    return processSearchResults(response);
+}
+```
+
+### Mejores Prácticas de Búsqueda
+
+#### 1. **Uso de Keywords vs Text**
+```java
+// ❌ Búsqueda en campo text (tokenizado)
+.term(t -> t.field("provincia").value("San José"))  // No encuentra nada
+
+// ✅ Búsqueda en campo keyword (exacto)
+.term(t -> t.field("provincia.keyword").value("San José"))  // Encuentra exacto
+
+// ✅ Búsqueda fuzzy en campo text
+.match(m -> m.field("provincia").query("San José").fuzziness("AUTO"))  // Flexible
+```
+
+#### 2. **Manejo de Errores de Búsqueda**
+```java
+public List<Map<String, Object>> safeSearch(String indexName, String searchText) {
+    try {
+        return searchAllFields(indexName, searchText);
+    } catch (ElasticsearchException e) {
+        if (e.status() == 404) {
+            System.out.println("Índice no encontrado: " + indexName);
+            return new ArrayList<>();
+        } else {
+            System.err.println("Error de búsqueda: " + e.getMessage());
+            throw new RuntimeException("Error en búsqueda", e);
+        }
+    } catch (IOException e) {
+        System.err.println("Error de conexión: " + e.getMessage());
+        return new ArrayList<>();
+    }
+}
+```
+
+#### 3. **Optimización de Performance**
+```java
+public SearchRequest optimizedSearchRequest(String indexName, String query) {
+    return SearchRequest.of(s -> s
+        .index(indexName)
+        .query(q -> q.queryString(qs -> qs.query(query)))
+        .source(src -> src.excludes("large_field"))  // Excluir campos grandes
+        .size(50)                                     // Limitar resultados
+        .timeout("30s")                              // Timeout de búsqueda
+        .trackTotalHits(t -> t.enabled(false))       // No contar total si no necesario
+    );
+}
+```
+
+## 🔧 Configuración Avanzada de Elasticsearch
+
+### Settings Personalizados para el Índice
+
+```java
+public void createOptimizedIndex(String indexName) throws IOException {
+    CreateIndexRequest request = CreateIndexRequest.of(c -> c
+        .index(indexName)
+        .settings(s -> s
+            // Configuración de shards
+            .numberOfShards("1")                    // Para datasets pequeños
+            .numberOfReplicas("0")                  // Sin réplicas en desarrollo
+            
+            // Configuración de refresh
+            .refreshInterval("30s")                 // Menos frecuente para mejor performance
+            
+            // Configuración de análisis
+            .analysis(a -> a
+                .analyzer("spanish_analyzer", an -> an
+                    .custom(c -> c
+                        .tokenizer("standard")
+                        .filter("lowercase", "spanish_stop", "spanish_stemmer")
+                    )
+                )
+                .filter("spanish_stop", f -> f
+                    .definition(d -> d.stop(st -> st.stopwords("_spanish_")))
+                )
+                .filter("spanish_stemmer", f -> f
+                    .definition(d -> d.stemmer(st -> st.language("spanish")))
+                )
+            )
+        )
+        .mappings(m -> m
+            .properties("cliente", p -> p
+                .text(t -> t
+                    .analyzer("spanish_analyzer")
+                    .fields("keyword", f -> f.keyword(k -> k.ignoreAbove(256)))
+                )
+            )
+            .properties("producto", p -> p
+                .text(t -> t
+                    .analyzer("spanish_analyzer")
+                    .fields("keyword", f -> f.keyword(k -> k.ignoreAbove(256)))
+                )
+            )
+            .properties("fecha", p -> p
+                .date(d -> d.format("MM/dd/yyyy||yyyy-MM-dd||epoch_millis"))
+            )
+            .properties("total", p -> p
+                .double_(d -> d)
+            )
+        )
+    );
+    
+    client.indices().create(request);
+}
+```
+
+### Análisis de Performance
+
+#### Métricas Importantes:
+```java
+public void printPerformanceMetrics(String indexName) throws IOException {
+    // Estadísticas del índice
+    IndicesStatsResponse statsResponse = client.indices().stats(
+        IndicesStatsRequest.of(i -> i.index(indexName))
+    );
+    
+    var indexStats = statsResponse.indices().get(indexName).total();
+    
+    System.out.println("=== MÉTRICAS DE PERFORMANCE ===");
+    System.out.println("Documentos: " + indexStats.docs().count());
+    System.out.println("Tamaño del índice: " + formatBytes(indexStats.store().sizeInBytes()));
+    System.out.println("Búsquedas totales: " + indexStats.search().queryTotal());
+    System.out.println("Tiempo promedio de búsqueda: " + indexStats.search().queryTimeInMillis() + "ms");
+    System.out.println("Indexaciones totales: " + indexStats.indexing().indexTotal());
+    System.out.println("Tiempo promedio de indexación: " + indexStats.indexing().indexTimeInMillis() + "ms");
+}
+```
+
+## 📊 Comparación: Java vs Kibana para Visualización
+
+### Ventajas de la Implementación Java + JavaFX
+
+| Aspecto | Java + JavaFX | Kibana |
+|---------|---------------|--------|
+| **Control Total** | ✅ Lógica personalizada | ❌ Limitado a widgets |
+| **Integración** | ✅ Nativa con aplicación | ❌ Herramienta externa |
+| **UI/UX Personalizada** | ✅ Diseño completamente libre | ❌ Templates predefinidos |
+| **Lógica de Negocio** | ✅ Código Java nativo | ❌ Requiere plugins |
+| **Deployment** | ✅ Single JAR application | ❌ Infraestructura adicional |
+
+### Cuándo Usar Cada Enfoque
+
+**✅ Usar Java + JavaFX cuando:**
+- Necesitas integración con aplicación Java existente
+- Requieres workflows específicos de negocio
+- Tienes requisitos de UI muy particulares
+- El equipo es principalmente desarrolladores Java
+- Necesitas funcionalidades offline
+
+**✅ Usar Kibana cuando:**
+- Necesitas dashboards rápidos para análisis exploratorio
+- Trabajas con grandes volúmenes de datos (GB/TB)
+- Requieres funcionalidades avanzadas (Machine Learning, Alerting)
+- El equipo incluye analistas de datos sin experiencia en programación
+- Necesitas dashboards compartidos para múltiples usuarios
+
+### Hybrid Approach: Lo Mejor de Ambos Mundos
+
+```java
+public class HybridVisualizationService {
+    
+    // Para aplicación de usuario final
+    public void showJavaFXDashboard(List<Map<String, Object>> data) {
+        Platform.runLater(() -> {
+            // UI personalizada con lógica de negocio
+            updateCustomerDashboard(data);
+            applyBusinessRules(data);
+        });
+    }
+    
+    // Para análisis exploratorio
+    public void generateKibanaUrl(String indexName, Map<String, String> filters) {
+        String kibanaUrl = "http://localhost:5601/app/discover#/" +
+                          "?_g=(filters:!(),time:(from:now-24h,to:now))" +
+                          "&_a=(index:'" + indexName + "')";
+        
+        // Abrir en navegador para análisis detallado
+        openInBrowser(kibanaUrl);
+    }
+}
+```
 
 ### Panel Principal
 - **Tabla de Datos**: Muestra todos los registros indexados
@@ -534,4 +1092,204 @@ Proyecto educativo - Universidad Nacional de Costa Rica
 
 ---
 
+
+## 🔍 Ejemplos Prácticos de Búsqueda
+
+### Casos de Uso Reales
+
+#### 1. **Buscar por Cliente Específico**
+```
+Campo: "cliente"
+Texto: "Pedro"
+```
+**Resultado**: Encuentra todos los registros donde el cliente contenga "Pedro"
+- "Pedro García"
+- "Pedro Rodríguez" 
+- "María Pedro"
+
+#### 2. **Buscar Productos Tecnológicos**
+```
+Campo: "Todos los campos"
+Texto: "laptop"
+```
+**Resultado**: Encuentra documentos que contengan "laptop" en cualquier campo
+- producto: "Laptop HP"
+- producto: "Laptop Dell"
+- descripción: "Venta de laptop"
+
+#### 3. **Buscar por Provincia**
+```
+Campo: "provincia"
+Texto: "San José"
+```
+**Resultado**: Encuentra todas las ventas en San José
+- Tolerancia a errores: "san jose", "SAN JOSE" también funcionan
+
+#### 4. **Búsqueda Combinada**
+```
+Campo: "Todos los campos"
+Texto: "Pedro laptop"
+```
+**Resultado**: Encuentra documentos que contengan tanto "Pedro" como "laptop"
+
+### Tolerancia a Errores Tipográficos
+
+La aplicación incluye fuzzy matching automático:
+
+| Texto Buscado | Encuentra | Nota |
+|---------------|-----------|------|
+| `pedro` | "Pedro", "PEDRO" | Case insensitive |
+| `pedra` | "Pedro" | 1 error tipográfico |
+| `laptp` | "laptop" | 1 error tipográfico |
+| `Garcìa` | "García" | Normalización de acentos |
+| `sanjose` | "San José" | Espacios opcionales |
+
+## 🛠️ Troubleshooting
+
+### Problemas Comunes y Soluciones
+
+#### 1. **Error: Index Not Found**
+```
+Exception: index_not_found_exception
+```
+**Causa**: El índice no existe en Elasticsearch
+**Solución**:
+```java
+// Verificar si el índice existe antes de buscar
+public boolean indexExists(String indexName) throws IOException {
+    ExistsRequest request = ExistsRequest.of(e -> e.index(indexName));
+    BooleanResponse response = client.indices().exists(request);
+    return response.value();
+}
+```
+
+#### 2. **Búsquedas Lentas**
+```
+Síntoma: Búsquedas toman >2 segundos
+```
+**Soluciones**:
+- Reducir el tamaño de resultados: `.size(50)`
+- Usar scroll API para grandes datasets
+- Optimizar queries con filtros específicos
+- Considerar usar aggregations en lugar de search
+
+#### 3. **Memoria Insuficiente**
+```
+Exception: OutOfMemoryError
+```
+**Soluciones**:
+```bash
+# Aumentar memoria para Elasticsearch
+docker run -e "ES_JAVA_OPTS=-Xms512m -Xmx512m" elasticsearch:8.19.4
+
+# Aumentar memoria para la aplicación Java
+mvn javafx:run -Djavafx.args="-Xmx1g"
+```
+
+#### 4. **Caracteres Especiales en Búsqueda**
+```
+Problema: Búsquedas con acentos no funcionan
+```
+**Solución**: Usar analizador adecuado
+```java
+// Configurar analizador español
+.analyzer("spanish_analyzer", an -> an
+    .custom(c -> c
+        .tokenizer("standard")
+        .filter("lowercase", "asciifolding", "spanish_stemmer")
+    )
+)
+```
+
+### Comandos de Debug
+
+#### Verificar Estado de Elasticsearch
+```bash
+# Estado del cluster
+curl -X GET "localhost:9200/_cluster/health?pretty"
+
+# Listar todos los índices
+curl -X GET "localhost:9200/_cat/indices?v"
+
+# Ver configuración del índice
+curl -X GET "localhost:9200/excel_ventas/_settings?pretty"
+
+# Analizar cómo se tokeniza un texto
+curl -X POST "localhost:9200/excel_ventas/_analyze?pretty" -H 'Content-Type: application/json' -d'
+{
+  "analyzer": "standard",
+  "text": "Pedro García"
+}'
+```
+
+#### Queries de Test
+```bash
+# Búsqueda simple
+curl -X GET "localhost:9200/excel_ventas/_search?q=Pedro&pretty"
+
+# Búsqueda en campo específico
+curl -X GET "localhost:9200/excel_ventas/_search?pretty" -H 'Content-Type: application/json' -d'
+{
+  "query": {
+    "match": {
+      "cliente": "Pedro"
+    }
+  }
+}'
+
+# Contar documentos
+curl -X GET "localhost:9200/excel_ventas/_count?pretty"
+```
+
+### Best Practices para Producción
+
+#### 1. **Configuración de Seguridad**
+```yaml
+# elasticsearch.yml
+xpack.security.enabled: true
+xpack.security.transport.ssl.enabled: true
+xpack.security.http.ssl.enabled: true
+```
+
+#### 2. **Optimización de Performance**
+```java
+// Usar connection pooling
+RestClientBuilder builder = RestClient.builder(new HttpHost("localhost", 9200))
+    .setRequestConfigCallback(requestConfigBuilder ->
+        requestConfigBuilder
+            .setConnectTimeout(5000)
+            .setSocketTimeout(60000))
+    .setHttpClientConfigCallback(httpClientBuilder ->
+        httpClientBuilder
+            .setMaxConnTotal(100)
+            .setMaxConnPerRoute(50));
+```
+
+#### 3. **Manejo de Errores Robusto**
+```java
+public class RobustElasticsearchService {
+    private static final int MAX_RETRIES = 3;
+    private static final long RETRY_DELAY_MS = 1000;
+    
+    public List<Map<String, Object>> searchWithRetry(String indexName, String query) {
+        for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                return searchAllFields(indexName, query);
+            } catch (ConnectException e) {
+                if (attempt == MAX_RETRIES) {
+                    throw new RuntimeException("Failed to connect after " + MAX_RETRIES + " attempts", e);
+                }
+                
+                try {
+                    Thread.sleep(RETRY_DELAY_MS * attempt);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException("Interrupted during retry", ie);
+                }
+            }
+        }
+        return new ArrayList<>();
+    }
+}
+```
 **Desarrollado por Alejandro León Marín usando Java, Elasticsearch, Docker y JavaFX**

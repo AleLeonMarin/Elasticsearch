@@ -6,6 +6,7 @@
 <?import javafx.scene.control.*?>
 <?import javafx.scene.layout.*?>
 <?import javafx.geometry.Insets?>
+<?import javafx.scene.input.*?>
 
 <AnchorPane maxHeight="1.7976931348623157E308" maxWidth="1.7976931348623157E308" minHeight="-Infinity" minWidth="-Infinity" prefHeight="800.0" prefWidth="1200.0" xmlns="http://javafx.com/javafx/24.0.1" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.una.ale.controllers.MainController">
    <children>
@@ -28,6 +29,19 @@
                   <Button mnemonicParsing="false" onAction="#onLoadData" style="-fx-background-color: #f39c12; -fx-text-fill: white; -fx-font-weight: bold;" text="📊 Cargar Datos" />
                   <Button mnemonicParsing="false" onAction="#onViewIndexedData" style="-fx-background-color: #9b59b6; -fx-text-fill: white; -fx-font-weight: bold;" text="📋 Ver en Consola" />
                   <Button mnemonicParsing="false" onAction="#onOpenDataViewer" style="-fx-background-color: #e67e22; -fx-text-fill: white; -fx-font-weight: bold;" text="🖥️ Visualizador Gráfico" />
+               </children>
+            </HBox>
+            
+            <!-- Search Bar -->
+            <HBox alignment="CENTER_LEFT" spacing="10.0" style="-fx-background-color: #f8f9fa; -fx-padding: 10; -fx-border-color: #e9ecef; -fx-border-width: 0 0 1 0;">
+               <children>
+                  <Label style="-fx-font-size: 14px; -fx-font-weight: bold; -fx-text-fill: #495057;" text="🔍 Búsqueda:" />
+                  <TextField fx:id="txtSearch" promptText="Buscar por cliente, producto, provincia..." style="-fx-pref-width: 300; -fx-padding: 8;" onKeyPressed="#onSearchKeyPressed" />
+                  <ComboBox fx:id="cmbSearchField" prefWidth="150.0" promptText="Campo" />
+                  <Button fx:id="btnSearch" mnemonicParsing="false" onAction="#onSearch" style="-fx-background-color: #007bff; -fx-text-fill: white; -fx-font-weight: bold; -fx-padding: 8 15;" text="🔍 Buscar" />
+                  <Button fx:id="btnClearSearch" mnemonicParsing="false" onAction="#onClearSearch" style="-fx-background-color: #6c757d; -fx-text-fill: white; -fx-padding: 8 15;" text="🗑️ Limpiar" />
+                  <Region HBox.hgrow="ALWAYS" />
+                  <Label fx:id="lblSearchResults" style="-fx-font-size: 12px; -fx-text-fill: #6c757d;" text="" />
                </children>
             </HBox>
             

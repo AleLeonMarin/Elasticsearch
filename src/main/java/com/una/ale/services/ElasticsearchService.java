@@ -259,11 +259,18 @@ public class ElasticsearchService {
     /**
      * Cuenta el número de documentos en un índice
      * @param indexName Nombre del índice
-     * @return Número de documentos o -1 si hay error
+     * @return Número de documentos o 0 si el índice no existe
      */
     public long countDocuments(String indexName) {
         try {
             ElasticsearchClient client = connection.connect();
+            
+            // Verificar si el índice existe primero
+            boolean indexExists = client.indices().exists(e -> e.index(indexName)).value();
+            if (!indexExists) {
+                System.out.println("📋 El índice '" + indexName + "' no existe, retornando count = 0");
+                return 0;
+            }
             
             CountResponse countResponse = client.count(c -> c.index(indexName));
             
@@ -272,7 +279,7 @@ public class ElasticsearchService {
             
         } catch (IOException e) {
             System.err.println("❌ Error contando documentos: " + e.getMessage());
-            return -1;
+            return 0; // Retornar 0 en lugar de -1 para que se proceda con la indexación
         }
     }
 
@@ -408,6 +415,109 @@ public class ElasticsearchService {
             
         } catch (Exception e) {
             System.err.println("❌ Error mostrando contenido del índice: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Busca documentos en todos los campos usando query_string simple
+     * @param indexName Nombre del índice
+     * @param searchText Texto a buscar
+     * @return Lista de documentos que coinciden con la búsqueda (sin duplicados)
+     * @throws IOException si hay error en la búsqueda
+     */
+    @SuppressWarnings("unchecked")
+    public List<Map<String, Object>> searchAllFields(String indexName, String searchText) throws IOException {
+        ElasticsearchClient client = connection.connect();
+        
+        SearchResponse<Map<String, Object>> response = client.search(s -> s
+            .index(indexName)
+            .size(1000) // Máximo de resultados
+            .query(q -> q
+                .queryString(qs -> qs
+                    .query(searchText)
+                )
+            )
+        , (Class<Map<String, Object>>) (Class<?>) Map.class);
+        
+        // Usar LinkedHashMap para mantener orden y evitar duplicados por ID
+        Map<String, Map<String, Object>> uniqueResults = new java.util.LinkedHashMap<>();
+        
+        for (Hit<Map<String, Object>> hit : response.hits().hits()) {
+            String docId = hit.id();
+            if (!uniqueResults.containsKey(docId)) {
+                Map<String, Object> doc = new HashMap<>(hit.source());
+                doc.put("_id", docId);
+                doc.put("_score", hit.score());
+                uniqueResults.put(docId, doc);
+            }
+        }
+        
+        return new ArrayList<>(uniqueResults.values());
+    }
+    
+    /**
+     * Busca documentos en un campo específico
+     * @param indexName Nombre del índice
+     * @param fieldName Nombre del campo
+     * @param searchText Texto a buscar
+     * @return Lista de documentos que coinciden con la búsqueda (sin duplicados)
+     * @throws IOException si hay error en la búsqueda
+     */
+    @SuppressWarnings("unchecked")
+    public List<Map<String, Object>> searchByField(String indexName, String fieldName, String searchText) throws IOException {
+        ElasticsearchClient client = connection.connect();
+        
+        SearchResponse<Map<String, Object>> response = client.search(s -> s
+            .index(indexName)
+            .size(1000) // Máximo de resultados
+            .query(q -> q
+                .match(m -> m
+                    .field(fieldName)
+                    .query(searchText)
+                )
+            )
+        , (Class<Map<String, Object>>) (Class<?>) Map.class);
+        
+        // Usar LinkedHashMap para mantener orden y evitar duplicados por ID
+        Map<String, Map<String, Object>> uniqueResults = new java.util.LinkedHashMap<>();
+        
+        for (Hit<Map<String, Object>> hit : response.hits().hits()) {
+            String docId = hit.id();
+            if (!uniqueResults.containsKey(docId)) {
+                Map<String, Object> doc = new HashMap<>(hit.source());
+                doc.put("_id", docId);
+                doc.put("_score", hit.score());
+                uniqueResults.put(docId, doc);
+            }
+        }
+        
+        return new ArrayList<>(uniqueResults.values());
+    }
+    
+    /**
+     * Elimina un índice de Elasticsearch
+     * @param indexName Nombre del índice a eliminar
+     * @return true si se eliminó exitosamente, false en caso contrario
+     */
+    public boolean deleteIndex(String indexName) {
+        try {
+            ElasticsearchClient client = connection.connect();
+            
+            // Verificar si el índice existe
+            boolean exists = client.indices().exists(e -> e.index(indexName)).value();
+            if (!exists) {
+                System.out.println("📋 El índice '" + indexName + "' no existe");
+                return true; // No hay nada que eliminar
+            }
+            
+            // Eliminar el índice
+            client.indices().delete(d -> d.index(indexName));
+            System.out.println("🗑️ Índice '" + indexName + "' eliminado exitosamente");
+            return true;
+            
+        } catch (IOException e) {
+            System.err.println("❌ Error eliminando índice '" + indexName + "': " + e.getMessage());
+            return false;
         }
     }
 }
